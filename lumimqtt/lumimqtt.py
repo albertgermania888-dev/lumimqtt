@@ -334,6 +334,8 @@ class LumiMqtt:
                         ),
                         'supported_color_modes': [light.COLOR_MODE],
                         'brightness': light.BRIGHTNESS,
+                        'effect': getattr(light, 'EFFECT', False),
+                        'effect_list': getattr(light, 'EFFECT_LIST', []),
                         'state_topic': self._get_topic(light.topic),
                         'command_topic': self._get_topic(light.topic_set),
                     }),
