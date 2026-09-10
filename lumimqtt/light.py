@@ -4,7 +4,9 @@ LUMI light control
 import asyncio as aio
 import colorsys
 import logging
+import math
 import os
+import random
 import typing as ty
 
 from .device import Device
@@ -35,7 +37,17 @@ class Light(Device):
     COLOR_MODE = 'rgb'
     BRIGHTNESS = True
     EFFECT = True
-    EFFECT_LIST = ["Police", "Rainbow", "Strobe", "Blink"]
+    EFFECT_LIST = [
+        "None",
+        "Police",
+        "Rainbow",
+        "Strobe",
+        "Blink",
+        "Police Strobe",
+        "Double Strobe",
+        "Breathing",
+        "Fire"
+    ]
 
     def __init__(self, name, devices: dict, topic):
         super().__init__(name, None, topic)
@@ -91,22 +103,119 @@ class Light(Device):
             hue = 0.0
             while True:
                 r, g, b = colorsys.hsv_to_rgb(hue, 1.0, 1.0)
+                # Apply color internally without software transition delay
                 await self.red.write(int(r * self.red.max_brightness))
                 await self.green.write(int(g * self.green.max_brightness))
                 await self.blue.write(int(b * self.blue.max_brightness))
-                hue = (hue + 0.05) % 1.0
-                await aio.sleep(0.1)
+                hue = (hue + 0.01) % 1.0
+                await aio.sleep(0.05)
         except aio.CancelledError:
             pass
 
-    async def _strobe_effect(self, brightness):
+    async def _police_strobe_effect(self):
         try:
             while True:
-                # White color with given brightness
+                for _ in range(2):
+                    await self.red.write(self.red.max_brightness)
+                    await self.green.write(0)
+                    await self.blue.write(0)
+                    await aio.sleep(0.05)
+                    await self.red.write(0)
+                    await aio.sleep(0.05)
+                await aio.sleep(0.2)
+                for _ in range(2):
+                    await self.red.write(0)
+                    await self.green.write(0)
+                    await self.blue.write(self.blue.max_brightness)
+                    await aio.sleep(0.05)
+                    await self.blue.write(0)
+                    await aio.sleep(0.05)
+                await aio.sleep(0.2)
+        except aio.CancelledError:
+            pass
+
+    async def _double_strobe_effect(self):
+        try:
+            while True:
+                color = self.state.get('color', {})
+                brightness = self.state.get('brightness', 255) / 255
+                r = int((color.get('r', 255) / 255) * self.red.max_brightness * brightness)
+                g = int((color.get('g', 255) / 255) * self.green.max_brightness * brightness)
+                b = int((color.get('b', 255) / 255) * self.blue.max_brightness * brightness)
+
+                for _ in range(2):
+                    await self.red.write(r)
+                    await self.green.write(g)
+                    await self.blue.write(b)
+                    await aio.sleep(0.05)
+                    await self.red.write(0)
+                    await self.green.write(0)
+                    await self.blue.write(0)
+                    await aio.sleep(0.05)
+                await aio.sleep(0.1)
+
+                for _ in range(2):
+                    await self.red.write(r)
+                    await self.green.write(g)
+                    await self.blue.write(b)
+                    await aio.sleep(0.05)
+                    await self.red.write(0)
+                    await self.green.write(0)
+                    await self.blue.write(0)
+                    await aio.sleep(0.05)
+                await aio.sleep(0.5)
+        except aio.CancelledError:
+            pass
+
+    async def _breathing_effect(self):
+        try:
+            step = 0
+            while True:
+                color = self.state.get('color', {})
+                # Sine wave from 0.1 to 1.0
+                brightness_factor = (math.sin(step) + 1) / 2 * 0.9 + 0.1
+                r = int((color.get('r', 255) / 255) * self.red.max_brightness * brightness_factor)
+                g = int((color.get('g', 255) / 255) * self.green.max_brightness * brightness_factor)
+                b = int((color.get('b', 255) / 255) * self.blue.max_brightness * brightness_factor)
+
+                await self.red.write(r)
+                await self.green.write(g)
+                await self.blue.write(b)
+
+                step += 0.05
+                await aio.sleep(0.05)
+        except aio.CancelledError:
+            pass
+
+    async def _fire_effect(self):
+        try:
+            while True:
+                brightness_factor = random.uniform(0.5, 1.0)
+                # Orange/Red hue shifting slightly
+                hue = random.uniform(0.0, 0.12)
+                r_scale, g_scale, b_scale = colorsys.hsv_to_rgb(hue, 1.0, 1.0)
+
+                r = int(r_scale * self.red.max_brightness * brightness_factor)
+                g = int(g_scale * self.green.max_brightness * brightness_factor)
+                b = int(b_scale * self.blue.max_brightness * brightness_factor)
+
+                await self.red.write(r)
+                await self.green.write(g)
+                await self.blue.write(b)
+
+                await aio.sleep(random.uniform(0.05, 0.15))
+        except aio.CancelledError:
+            pass
+
+    async def _strobe_effect(self):
+        try:
+            while True:
+                color = self.state.get('color', {})
+                brightness = self.state.get('brightness', 255)
                 b = brightness / 255
-                await self.red.write(int(self.red.max_brightness * b))
-                await self.green.write(int(self.green.max_brightness * b))
-                await self.blue.write(int(self.blue.max_brightness * b))
+                await self.red.write(int((color.get('r', 255) / 255) * self.red.max_brightness * b))
+                await self.green.write(int((color.get('g', 255) / 255) * self.green.max_brightness * b))
+                await self.blue.write(int((color.get('b', 255) / 255) * self.blue.max_brightness * b))
                 await aio.sleep(0.1)
 
                 await self.red.write(0)
@@ -116,9 +225,11 @@ class Light(Device):
         except aio.CancelledError:
             pass
 
-    async def _blink_effect(self, color, brightness):
+    async def _blink_effect(self):
         try:
             while True:
+                color = self.state.get('color', {})
+                brightness = self.state.get('brightness', 255)
                 b = brightness / 255
                 await self.red.write(int((color.get('r', 255) / 255) * self.red.max_brightness * b))
                 await self.green.write(int((color.get('g', 255) / 255) * self.green.max_brightness * b))
@@ -133,8 +244,6 @@ class Light(Device):
             pass
 
     async def set(self, value: dict, transition_period: float):
-        self._cancel_effect()
-
         state = value.get('state', self.state['state'])
         color = value.get('color', self.state['color'])
         # have to save to separate variable, to keep it after off
@@ -158,27 +267,50 @@ class Light(Device):
         if state.lower() == 'off':
             brightness = 0
 
-        if effect and effect in self.EFFECT_LIST:
+        # Update state directly so active effects can read it dynamically
+        self.state['state'] = state
+        self.state['brightness'] = target_brightness
+        self.state['color'] = color
+
+        # Handle effect stopping or starting
+        if 'effect' in value and (not effect or effect == 'None'):
+            # Clear effect explicitly requested
+            self._cancel_effect()
+            if 'effect' in self.state:
+                del self.state['effect']
+            # Continue with transition=0 if explicitly cleared to prevent delay conflicts
+            transition = 0
+        elif effect and effect in self.EFFECT_LIST:
+            # Start new effect
+            self._cancel_effect()
             self.state['effect'] = effect
-            self.state['state'] = state
-            self.state['brightness'] = target_brightness
-            self.state['color'] = color
 
             if effect == 'Police':
                 self._effect_task = aio.create_task(self._police_effect())
             elif effect == 'Rainbow':
                 self._effect_task = aio.create_task(self._rainbow_effect())
             elif effect == 'Strobe':
-                self._effect_task = aio.create_task(self._strobe_effect(brightness))
+                self._effect_task = aio.create_task(self._strobe_effect())
             elif effect == 'Blink':
-                self._effect_task = aio.create_task(self._blink_effect(color, brightness))
+                self._effect_task = aio.create_task(self._blink_effect())
+            elif effect == 'Police Strobe':
+                self._effect_task = aio.create_task(self._police_strobe_effect())
+            elif effect == 'Double Strobe':
+                self._effect_task = aio.create_task(self._double_strobe_effect())
+            elif effect == 'Breathing':
+                self._effect_task = aio.create_task(self._breathing_effect())
+            elif effect == 'Fire':
+                self._effect_task = aio.create_task(self._fire_effect())
 
             logger.info(f'Start effect {effect}')
             return
-
-        # Clear effect if no effect or unsupported effect
-        if 'effect' in self.state:
-            del self.state['effect']
+        elif 'effect' not in value and self._effect_task:
+            # Normal color change arrived while an effect is running
+            # We must cancel the effect to respect the new color/state.
+            self._cancel_effect()
+            if 'effect' in self.state:
+                del self.state['effect']
+            transition = 0
 
         def color_repr(color: dict):
             return f'#{color["r"]:02x}{color["g"]:02x}{color["b"]:02x}'
