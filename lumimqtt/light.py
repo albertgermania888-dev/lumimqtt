@@ -273,7 +273,7 @@ class Light(Device):
         self.state['color'] = color
 
         # Handle effect stopping or starting
-        if 'effect' in value and (not effect or effect == 'None'):
+        if 'effect' in value and (not effect or str(effect).lower() == 'none'):
             # Clear effect explicitly requested
             self._cancel_effect()
             if 'effect' in self.state:
