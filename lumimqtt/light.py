@@ -276,8 +276,7 @@ class Light(Device):
         if 'effect' in value and (not effect or str(effect).lower() == 'none'):
             # Clear effect explicitly requested
             self._cancel_effect()
-            if 'effect' in self.state:
-                del self.state['effect']
+            self.state['effect'] = 'none'
             # Continue with transition=0 if explicitly cleared to prevent delay conflicts
             transition = 0
         elif effect and effect in self.EFFECT_LIST:
@@ -305,12 +304,15 @@ class Light(Device):
             logger.info(f'Start effect {effect}')
             return
         elif 'effect' not in value and self._effect_task:
-            # Normal color change arrived while an effect is running
-            # We must cancel the effect to respect the new color/state.
-            self._cancel_effect()
-            if 'effect' in self.state:
-                del self.state['effect']
-            transition = 0
+            if state.lower() == 'off':
+                self._cancel_effect()
+                self.state['effect'] = 'none'
+                transition = 0
+            else:
+                # Normal color change arrived while an effect is running
+                # Let it run! The async loops will pick up the new state from self.state directly.
+                logger.info(f'Color updated dynamically during effect: {self.state["effect"]}')
+                return
 
         def color_repr(color: dict):
             return f'#{color["r"]:02x}{color["g"]:02x}{color["b"]:02x}'
