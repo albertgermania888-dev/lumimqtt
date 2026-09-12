@@ -5,6 +5,7 @@ LUMI MQTT handler
 import asyncio as aio
 import json
 import logging
+import ssl
 import typing as ty
 import sys
 from dataclasses import dataclass
@@ -138,7 +139,8 @@ class LumiMqtt:
     def subscribed_topics(self):
         # TODO: add SOUND/TTS topics ?
         return [self._get_topic(light.topic_set) for light in self.lights] + \
-            [self._get_topic(cmd.topic_set) for cmd in self.custom_commands]
+            [self._get_topic(cmd.topic_set) for cmd in self.custom_commands] + \
+            [self._get_topic('transition/set')]
 
     async def _command_handler(self, command: Command, value):
         await command.set(value)
@@ -194,6 +196,22 @@ class LumiMqtt:
                 if message.topic_name not in self.subscribed_topics:
                     logger.error("Invalid topic for light")
                     continue
+
+                if message.topic_name == self._get_topic('transition/set'):
+                    try:
+                        self._light_transition_period = float(message.payload)
+                        await self._client.publish(
+                            aio_mqtt.PublishableMessage(
+                                topic_name=self._get_topic('transition'),
+                                payload=str(self._light_transition_period),
+                                qos=aio_mqtt.QOSLevel.QOS_1,
+                                retain=True,
+                            ),
+                        )
+                    except ValueError as e:
+                        logger.error(f"Invalid transition value: {e}")
+                    continue
+
                 light: ty.Optional[Light] = None
                 for _light in self.lights:
                     if message.topic_name == self._get_topic(_light.topic_set):
@@ -276,6 +294,24 @@ class LumiMqtt:
                 ),
             )
 
+        await self._client.publish(
+            aio_mqtt.PublishableMessage(
+                topic_name=f'homeassistant/number/{self.dev_id}/transition/config',
+                payload=json.dumps({
+                    **get_generic_vals('transition'),
+                    'name': 'Transition',
+                    'min': 0,
+                    'max': 60,
+                    'step': 1,
+                    'mode': 'slider',
+                    'state_topic': self._get_topic('transition'),
+                    'command_topic': self._get_topic('transition/set'),
+                }),
+                qos=aio_mqtt.QOSLevel.QOS_1,
+                retain=True,
+            ),
+        )
+
         # set buttons config
         for button in self.buttons:
             base_topic = self._get_topic(button.topic)
@@ -334,6 +370,8 @@ class LumiMqtt:
                         ),
                         'supported_color_modes': [light.COLOR_MODE],
                         'brightness': light.BRIGHTNESS,
+                        'effect': getattr(light, 'EFFECT', False),
+                        'effect_list': getattr(light, 'EFFECT_LIST', []),
                         'state_topic': self._get_topic(light.topic),
                         'command_topic': self._get_topic(light.topic_set),
                     }),
@@ -489,8 +527,6 @@ class LumiMqtt:
                 if self._mqtt_tls or (
                     self._mqtt_cert is not None and self._mqtt_key is not None
                 ):
-                    import ssl
-
                     context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
                     if not self._mqtt_verify_cert:
                         context.check_hostname = False
@@ -531,6 +567,15 @@ class LumiMqtt:
                     ])
                 if self._auto_discovery:
                     await self.send_config()
+
+                await self._client.publish(
+                    aio_mqtt.PublishableMessage(
+                        topic_name=self._get_topic('transition'),
+                        payload=str(self._light_transition_period),
+                        qos=aio_mqtt.QOSLevel.QOS_1,
+                        retain=True,
+                    ),
+                )
 
                 for light in self.lights:
                     await self._publish_light(light)
