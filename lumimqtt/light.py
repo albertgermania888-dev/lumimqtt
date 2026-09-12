@@ -373,4 +373,5 @@ class Light(Device):
             'brightness': target_brightness,
             'color': color,
             'color_mode': self.COLOR_MODE,
+            'effect': self.state.get('effect', 'None')
         }
