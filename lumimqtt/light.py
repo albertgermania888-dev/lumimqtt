@@ -46,7 +46,8 @@ class Light(Device):
         "Police Strobe",
         "Double Strobe",
         "Breathing",
-        "Fire"
+        "Fire",
+        "Police Triple Strobe"
     ]
 
     def __init__(self, name, devices: dict, topic):
@@ -109,6 +110,28 @@ class Light(Device):
                 await self.blue.write(int(b * self.blue.max_brightness))
                 hue = (hue + 0.01) % 1.0
                 await aio.sleep(0.05)
+        except aio.CancelledError:
+            pass
+
+    async def _police_triple_strobe_effect(self):
+        try:
+            while True:
+                for _ in range(3):
+                    await self.red.write(self.red.max_brightness)
+                    await self.green.write(0)
+                    await self.blue.write(0)
+                    await aio.sleep(0.05)
+                    await self.red.write(0)
+                    await aio.sleep(0.05)
+                await aio.sleep(0.2)
+                for _ in range(3):
+                    await self.red.write(0)
+                    await self.green.write(0)
+                    await self.blue.write(self.blue.max_brightness)
+                    await aio.sleep(0.05)
+                    await self.blue.write(0)
+                    await aio.sleep(0.05)
+                await aio.sleep(0.2)
         except aio.CancelledError:
             pass
 
@@ -276,7 +299,7 @@ class Light(Device):
         if 'effect' in value and (not effect or str(effect).lower() == 'none'):
             # Clear effect explicitly requested
             self._cancel_effect()
-            self.state['effect'] = 'none'
+            self.state['effect'] = 'None'
             # Continue with transition=0 if explicitly cleared to prevent delay conflicts
             transition = 0
         elif effect and effect in self.EFFECT_LIST:
@@ -300,13 +323,15 @@ class Light(Device):
                 self._effect_task = aio.create_task(self._breathing_effect())
             elif effect == 'Fire':
                 self._effect_task = aio.create_task(self._fire_effect())
+            elif effect == 'Police Triple Strobe':
+                self._effect_task = aio.create_task(self._police_triple_strobe_effect())
 
             logger.info(f'Start effect {effect}')
             return
         elif 'effect' not in value and self._effect_task:
             if state.lower() == 'off':
                 self._cancel_effect()
-                self.state['effect'] = 'none'
+                self.state['effect'] = 'None'
                 transition = 0
             else:
                 # Normal color change arrived while an effect is running
