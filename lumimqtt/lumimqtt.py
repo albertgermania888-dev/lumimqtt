@@ -5,6 +5,7 @@ LUMI MQTT handler
 import asyncio as aio
 import json
 import logging
+import ssl
 import typing as ty
 import sys
 from dataclasses import dataclass
@@ -526,8 +527,6 @@ class LumiMqtt:
                 if self._mqtt_tls or (
                     self._mqtt_cert is not None and self._mqtt_key is not None
                 ):
-                    import ssl
-
                     context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
                     if not self._mqtt_verify_cert:
                         context.check_hostname = False
